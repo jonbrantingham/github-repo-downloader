@@ -3,16 +3,43 @@ import requests
 from urllib.parse import urljoin
 import base64
 import argparse
+import json
 
-def get_repo_contents(owner, repo, path="", branch="main"):
+def get_default_branch(owner, repo):
+    """Get the default branch name for a repository."""
+    url = f"https://api.github.com/repos/{owner}/{repo}"
+    response = requests.get(url)
+    response.raise_for_status()
+    repo_info = response.json()
+    return repo_info.get("default_branch", "main")
+
+def get_repo_contents(owner, repo, path="", branch=None):
     """Get contents of a repository directory or file."""
+    # If branch is not specified, use the default branch
+    if branch is None:
+        branch = get_default_branch(owner, repo)
+        print(f"Using default branch: {branch}")
+    
     url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
     params = {"ref": branch}
-    response = requests.get(url, params=params)
-    response.raise_for_status()
-    return response.json()
+    
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 404 and branch == "main":
+            # If 404 with main branch, try master
+            print("Branch 'main' not found. Trying 'master' branch...")
+            params = {"ref": "master"}
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            return response.json()
+        else:
+            # Re-raise the exception if it's not a 404 for main branch
+            raise
 
-def download_files(owner, repo, branch="main", output_file="combined_output.txt"):
+def download_files(owner, repo, branch=None, output_file="combined_output.txt"):
     """
     Download all files from a repository and combine them into a single text file.
     """
@@ -27,29 +54,32 @@ def download_directory(owner, repo, path, branch, outfile):
     """
     Recursively download all files from a directory and append them to the output file.
     """
-    contents = get_repo_contents(owner, repo, path, branch)
-    
-    # Handle case when content is a list (directory)
-    if isinstance(contents, list):
-        for item in contents:
-            if item["type"] == "file":
-                # Skip binary files and other non-text formats
-                _, ext = os.path.splitext(item["name"])
-                if ext.lower() in ['.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', 
-                                  '.gz', '.exe', '.bin', '.mp3', '.mp4', '.avi']:
-                    print(f"Skipping binary file: {item['path']}")
-                    continue
-                    
-                # Download and append text file
-                download_and_append_file(item, outfile)
-            elif item["type"] == "dir":
-                # Recursively download subdirectory
-                download_directory(owner, repo, item["path"], branch, outfile)
-    else:
-        # Handle case when content is a single file
-        download_and_append_file(contents, outfile)
+    try:
+        contents = get_repo_contents(owner, repo, path, branch)
+        
+        # Handle case when content is a list (directory)
+        if isinstance(contents, list):
+            for item in contents:
+                if item["type"] == "file":
+                    # Skip binary files and other non-text formats
+                    _, ext = os.path.splitext(item["name"])
+                    if ext.lower() in ['.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', 
+                                      '.gz', '.exe', '.bin', '.mp3', '.mp4', '.avi']:
+                        print(f"Skipping binary file: {item['path']}")
+                        continue
+                        
+                    # Download and append text file
+                    download_and_append_file(item, outfile, owner, repo, branch)
+                elif item["type"] == "dir":
+                    # Recursively download subdirectory
+                    download_directory(owner, repo, item["path"], branch, outfile)
+        else:
+            # Handle case when content is a single file
+            download_and_append_file(contents, outfile, owner, repo, branch)
+    except Exception as e:
+        print(f"Error accessing directory {path}: {str(e)}")
 
-def download_and_append_file(file_item, outfile):
+def download_and_append_file(file_item, outfile, owner, repo, branch):
     """
     Download a single file and append it to the output file.
     """
@@ -65,7 +95,11 @@ def download_and_append_file(file_item, outfile):
                 content = response.text
             else:
                 # If there's no download URL, try getting the direct raw URL
-                raw_url = f"https://raw.githubusercontent.com/{file_item['url'].split('repos/')[1].split('/contents/')[0]}/main/{file_item['path']}"
+                # Use the correct branch
+                if branch is None:
+                    branch = get_default_branch(owner, repo)
+                
+                raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{file_item['path']}"
                 response = requests.get(raw_url)
                 response.raise_for_status()
                 content = response.text
@@ -83,7 +117,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download and combine all files from a GitHub repository")
     parser.add_argument("owner", help="Repository owner (username or organization)")
     parser.add_argument("repo", help="Repository name")
-    parser.add_argument("--branch", default="main", help="Branch name (default: main)")
+    parser.add_argument("--branch", default=None, help="Branch name (default: auto-detect repository default branch)")
     parser.add_argument("--output", default="combined_output.txt", help="Output filename")
     
     args = parser.parse_args()
