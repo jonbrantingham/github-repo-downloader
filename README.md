@@ -8,6 +8,8 @@ A simple Python utility to download all files from a GitHub repository and conca
 - Recursively traverses all directories
 - Skips binary files like images, PDFs, executables, etc.
 - Combines all downloaded files into a single text file with clear separators
+- Auto-detects the repository's default branch
+- Robust error handling to continue processing even if some files fail
 
 ## Installation
 
@@ -48,7 +50,7 @@ python github_downloader.py [owner] [repo] --branch [branch] --output [output_fi
 ```
 
 Additional parameters:
-- `--branch`: Specify a branch other than the default "main" branch
+- `--branch`: Specify a branch (default: auto-detect the repository's default branch)
 - `--output`: Specify a custom output filename (default is "combined_output.txt")
 
 For example:
@@ -74,6 +76,14 @@ FILE: another/file.txt
 
 [file content here]
 ```
+
+## Error Handling
+
+The script includes robust error handling:
+- Automatically detects the repository's default branch
+- If "main" branch is not found, it tries "master" branch
+- Continues processing if a specific file or directory cannot be accessed
+- Prints error messages for any issues encountered but keeps running
 
 ## Using with Claude Code
 
