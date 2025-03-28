@@ -53,20 +53,31 @@ def download_and_append_file(file_item, outfile):
     """
     Download a single file and append it to the output file.
     """
-    if file_item["encoding"] == "base64" and "content" in file_item:
-        content = base64.b64decode(file_item["content"]).decode('utf-8', errors='replace')
-    else:
-        # For files that are too large and don't have content
-        response = requests.get(file_item["download_url"])
-        response.raise_for_status()
-        content = response.text
-    
-    # Write file path and content to output
-    outfile.write(f"\n\n{'=' * 80}\n")
-    outfile.write(f"FILE: {file_item['path']}\n")
-    outfile.write(f"{'=' * 80}\n\n")
-    outfile.write(content)
-    print(f"Added: {file_item['path']}")
+    try:
+        # First attempt to use content if it's available in the API response
+        if "content" in file_item and file_item.get("encoding") == "base64":
+            content = base64.b64decode(file_item["content"]).decode('utf-8', errors='replace')
+        else:
+            # For files that are too large or don't have content/encoding in the API response
+            if "download_url" in file_item and file_item["download_url"]:
+                response = requests.get(file_item["download_url"])
+                response.raise_for_status()
+                content = response.text
+            else:
+                # If there's no download URL, try getting the direct raw URL
+                raw_url = f"https://raw.githubusercontent.com/{file_item['url'].split('repos/')[1].split('/contents/')[0]}/main/{file_item['path']}"
+                response = requests.get(raw_url)
+                response.raise_for_status()
+                content = response.text
+        
+        # Write file path and content to output
+        outfile.write(f"\n\n{'=' * 80}\n")
+        outfile.write(f"FILE: {file_item['path']}\n")
+        outfile.write(f"{'=' * 80}\n\n")
+        outfile.write(content)
+        print(f"Added: {file_item['path']}")
+    except Exception as e:
+        print(f"Error processing file {file_item['path']}: {str(e)}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download and combine all files from a GitHub repository")
